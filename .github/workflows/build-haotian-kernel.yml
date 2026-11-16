@@ -1,0 +1,80 @@
+name: Build Haotian XNU kernel (Linux, cctools ld64)
+
+on:
+  workflow_dispatch:
+    inputs:
+      source_archive:
+        description: Path to the XNU source tarball inside the repo
+        default: ios-payload/source/XNU26-wifi-source.tar.gz
+        required: true
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 300
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install toolchain prerequisites
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            build-essential cmake ninja-build libdispatch-dev libblocksruntime-dev \
+            libssl-dev libxml2-dev uuid-dev zlib1g-dev libtapi-dev pkg-config python3 perl
+
+      - name: Build cctools ld64 for Linux
+        run: |
+          set -eux
+          git clone --depth 1 https://github.com/tpoechtrager/cctools-port.git /tmp/cctools-port
+          cd /tmp/cctools-port/cctools
+          ./configure --prefix=/opt/cctools --target=aarch64-apple-darwin
+          make -j$(nproc)
+          sudo make install
+          ls -la /opt/cctools/bin
+
+      - name: Unpack XNU sources
+        run: |
+          set -eux
+          mkdir -p $RUNNER_TEMP/kn
+          tar -xzf "${{ inputs.source_archive }}" -C $RUNNER_TEMP/kn
+          ls -1 $RUNNER_TEMP/kn
+
+      - name: Point the clang wrapper at cctools ld64
+        run: |
+          set -eux
+          B=$RUNNER_TEMP/kn/deps/host/bin
+          rm -f $B/ld64
+          ln -sfn /opt/cctools/bin/ld64 $B/ld64
+          $B/ld64 -v | head -3 || true
+
+      - name: Build XNU kernel
+        run: |
+          set -eux
+          W=$RUNNER_TEMP/kn
+          export PATH=$W/deps/host/bin:$PATH
+          export XNUDEPS=$W/deps XNU_SDK_PATH=$W/deps/sdk XNU_SDK_VERSION=16.5
+          export RC_DARWIN_KERNEL_VERSION=25.6.0
+          cd $W/xnu12377
+          make SDKROOT=iphoneos ARCH_CONFIGS=ARM64 MACHINE_CONFIGS=BCM2837 \
+            KERNEL_CONFIGS=DEVELOPMENT ARCH_STRING_FOR_CURRENT_MACHINE_CONFIG=arm64 \
+            BUILD_WERROR=0 BUILD_LTO=0 DO_CTFMERGE=0 BUILD_DSYM=0 \
+            HOST_FLEX=flex HOST_BISON=bison HOST_GM4=m4 \
+            CC=xnu-clang CXX=xnu-clang++ LOGCOLORS=n MAKEJOBS=--jobs=$(nproc) \
+            KEXT_CREATE_SYMBOL_SET=/usr/bin/true
+
+      - name: Verify and collect the kernel
+        run: |
+          set -eux
+          K=$RUNNER_TEMP/kn/xnu12377/BUILD/obj/DEVELOPMENT_ARM64_BCM2837/mach.development.bcm2837
+          test -s $K
+          file $K
+          sha256sum $K | tee $RUNNER_TEMP/kernel-sha256.txt
+          cp $K $RUNNER_TEMP/kernel-haotian-c02.bin
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: kernel-haotian-c02
+          path: |
+            ${{ runner.temp }}/kernel-haotian-c02.bin
+            ${{ runner.temp }}/kernel-sha256.txt
+          if-no-files-found: error
