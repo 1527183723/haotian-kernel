@@ -64,6 +64,10 @@ jobs:
           rm -f $B/ld64
           ln -sfn /opt/cctools/bin/ld64 $B/ld64
           /opt/cctools/bin/ld64 -v || true
+          sudo ln -sfn "$(command -v clang)" /usr/bin/clang-21
+          sudo ln -sfn "$(command -v clang++)" /usr/bin/clang++-21
+          ls -la /usr/bin/clang-21 /usr/bin/clang++-21
+          $B/xnu-clang --version | head -2
 
       - name: Build XNU kernel
         run: |
