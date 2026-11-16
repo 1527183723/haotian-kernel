@@ -41,7 +41,7 @@ jobs:
           ./configure --prefix=/opt/cctools --target=aarch64-apple-darwin
           make -j$(nproc)
           sudo make install
-          /opt/cctools/bin/ld -v | head -3 || true
+          ls -la /opt/cctools/bin | head -40
 
       - name: Fetch compiled objects
         env:
@@ -59,7 +59,11 @@ jobs:
           W=$RUNNER_TEMP/kn
           B=$W/deps/host/bin
           rm -f $B/ld64 $B/csh $B/tcsh
-          ln -sfn /opt/cctools/bin/ld $B/ld64
+          LDREAL=$(find /opt/cctools/bin -maxdepth 1 \( -name 'ld' -o -name 'ld64' -o -name '*-ld' -o -name '*-ld64' \) | head -1)
+          echo "LDREAL=$LDREAL"
+          test -n "$LDREAL"
+          ln -sfn "$LDREAL" $B/ld64
+          $B/ld64 -v | head -3 || true
           ln -sfn /usr/bin/tcsh $B/csh
           ln -sfn /usr/bin/tcsh $B/tcsh
           sudo ln -sfn "$(command -v clang)" /usr/bin/clang-21
