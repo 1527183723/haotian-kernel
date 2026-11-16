@@ -56,7 +56,15 @@ jobs:
           SDK=$(xcrun --sdk iphoneos --show-sdk-path 2>/dev/null || true)
           echo "iphoneos_sdk=$SDK"
           set +e
-          xcrun clang++ -target arm64-apple-ios16.5 ${SDK:+-isysroot $SDK} $(cat /tmp/linkargs.txt) -filelist /tmp/filelist.txt -o mach.development.bcm2837.unstripped.noctf 2> /tmp/link.err
+          EXTRA_OBJS=""
+          for o in version.o lastkernelconstructor.o lastkerneldataconst.o; do
+            [ -f "$o" ] && EXTRA_OBJS="$EXTRA_OBJS $o"
+          done
+          echo "extra_objs=$EXTRA_OBJS"
+          xcrun clang++ -target arm64-apple-ios16.5 ${SDK:+-isysroot $SDK} $(cat /tmp/linkargs.txt) \
+            -filelist /tmp/filelist.txt $EXTRA_OBJS \
+            -L$W/deps/sdk/usr/local/lib/kernel -lfirehose_kernel -lpthread_kext \
+            -o mach.development.bcm2837.unstripped.noctf 2> /tmp/link.err
           rc=$?
           set -e
           echo "link_rc=$rc"
