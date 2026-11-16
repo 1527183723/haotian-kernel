@@ -19,15 +19,17 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends \
-            build-essential cmake ninja-build git curl unzip pkg-config \
+            build-essential cmake ninja-build git curl unzip pkg-config clang lld \
             libbsd-dev libssl-dev libxml2-dev uuid-dev zlib1g-dev
 
       - name: Build swift-corelibs-libdispatch (provides BlocksRuntime)
         run: |
           set -eux
           git clone --depth 1 --branch swift-6.0.3-RELEASE https://github.com/swiftlang/swift-corelibs-libdispatch.git /tmp/libdispatch
+          export CC=clang CXX=clang++
           cmake -S /tmp/libdispatch -B /tmp/libdispatch/build -G Ninja \
             -DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_PREFIX=/usr/local \
+            -DCMAKE_C_COMPILER=clang -DCMAKE_CXX_COMPILER=clang++ \
             -DBUILD_TESTING=OFF -DENABLE_SWIFT=OFF
           cmake --build /tmp/libdispatch/build -j$(nproc)
           sudo cmake --install /tmp/libdispatch/build
