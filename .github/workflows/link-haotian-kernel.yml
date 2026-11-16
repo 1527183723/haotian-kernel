@@ -80,7 +80,10 @@ jobs:
           export PATH=$W/deps/host/bin:$PATH
           export LD_LIBRARY_PATH=/usr/local/lib:${LD_LIBRARY_PATH:-}
           cd $O
-          xnu-clang++ $(cat .LDFLAGS) -filelist link.filelist -o mach.development.bcm2837.unstripped.noctf
+          tr -d '\000' < .LDFLAGS | sed "s|^xnu-clang++ ||; s|/home/xiao/haotian-build/haotian-kernel-c02|$W|g" > /tmp/linkargs.txt
+          wc -c /tmp/linkargs.txt
+          head -c 200 /tmp/linkargs.txt; echo
+          xnu-clang++ $(cat /tmp/linkargs.txt) -filelist link.filelist -o mach.development.bcm2837.unstripped.noctf
           ls -la mach.development.bcm2837.unstripped.noctf
           file mach.development.bcm2837.unstripped.noctf
           cp mach.development.bcm2837.unstripped.noctf $RUNNER_TEMP/kernel-haotian-c02.bin
