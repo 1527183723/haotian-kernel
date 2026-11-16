@@ -1,0 +1,95 @@
+name: Link Haotian kernel from prebuilt objects (cctools ld64)
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  link:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install base build tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            build-essential cmake ninja-build git curl unzip pkg-config clang lld tcsh \
+            libbsd-dev libssl-dev libxml2-dev uuid-dev zlib1g-dev
+
+      - name: Build swift-corelibs-libdispatch
+        run: |
+          set -eux
+          git clone --depth 1 --branch swift-6.0.3-RELEASE https://github.com/swiftlang/swift-corelibs-libdispatch.git /tmp/libdispatch
+          cmake -S /tmp/libdispatch -B /tmp/libdispatch/build -G Ninja \
+            -DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_PREFIX=/usr/local \
+            -DCMAKE_C_COMPILER=clang -DCMAKE_CXX_COMPILER=clang++ \
+            -DBUILD_TESTING=OFF -DENABLE_SWIFT=OFF
+          cmake --build /tmp/libdispatch/build -j$(nproc)
+          sudo cmake --install /tmp/libdispatch/build
+          sudo ldconfig
+
+      - name: Build cctools ld64
+        run: |
+          set -eux
+          export LDFLAGS="-L/usr/local/lib" CPPFLAGS="-I/usr/local/include"
+          git clone --depth 1 https://github.com/tpoechtrager/cctools-port.git /tmp/cctools-port
+          cd /tmp/cctools-port/cctools
+          ./configure --prefix=/opt/cctools --target=aarch64-apple-darwin
+          make -j$(nproc)
+          sudo make install
+          /opt/cctools/bin/ld -v | head -3 || true
+
+      - name: Fetch compiled objects
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -eux
+          gh release download objects-c02 --pattern kernel-objects.tar.gz --dir $RUNNER_TEMP --clobber
+          ls -la $RUNNER_TEMP/kernel-objects.tar.gz
+
+      - name: Prepare tree and toolchain
+        run: |
+          set -eux
+          mkdir -p $RUNNER_TEMP/kn
+          tar -xzf ios-payload/source/XNU26-wifi-source.tar.gz -C $RUNNER_TEMP/kn
+          W=$RUNNER_TEMP/kn
+          B=$W/deps/host/bin
+          rm -f $B/ld64 $B/csh $B/tcsh
+          ln -sfn /opt/cctools/bin/ld $B/ld64
+          ln -sfn /usr/bin/tcsh $B/csh
+          ln -sfn /usr/bin/tcsh $B/tcsh
+          sudo ln -sfn "$(command -v clang)" /usr/bin/clang-21
+          sudo ln -sfn "$(command -v clang++)" /usr/bin/clang++-21
+          O=$W/xnu12377/BUILD/obj/DEVELOPMENT_ARM64_BCM2837
+          mkdir -p $O
+          tar -xzf $RUNNER_TEMP/kernel-objects.tar.gz -C $O
+          ls $O | head -20
+          test -f $O/link.filelist
+          test -f $O/.LDFLAGS
+          wc -l $O/link.filelist
+
+      - name: Link the kernel
+        run: |
+          set -eux
+          W=$RUNNER_TEMP/kn
+          O=$W/xnu12377/BUILD/obj/DEVELOPMENT_ARM64_BCM2837
+          export PATH=$W/deps/host/bin:$PATH
+          export LD_LIBRARY_PATH=/usr/local/lib:${LD_LIBRARY_PATH:-}
+          cd $O
+          xnu-clang++ $(cat .LDFLAGS) -filelist link.filelist -o mach.development.bcm2837.unstripped.noctf
+          ls -la mach.development.bcm2837.unstripped.noctf
+          file mach.development.bcm2837.unstripped.noctf
+          cp mach.development.bcm2837.unstripped.noctf $RUNNER_TEMP/kernel-haotian-c02.bin
+          sha256sum $RUNNER_TEMP/kernel-haotian-c02.bin | tee $RUNNER_TEMP/kernel-sha256.txt
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: kernel-haotian-c02
+          path: |
+            ${{ runner.temp }}/kernel-haotian-c02.bin
+            ${{ runner.temp }}/kernel-sha256.txt
+          if-no-files-found: error
