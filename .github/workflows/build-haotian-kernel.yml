@@ -15,16 +15,32 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Install toolchain prerequisites
+      - name: Install base build tools
         run: |
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends \
-            build-essential cmake ninja-build libdispatch-dev libblocksruntime-dev \
-            libssl-dev libxml2-dev uuid-dev zlib1g-dev libtapi-dev pkg-config python3 perl
+            build-essential cmake ninja-build git curl unzip pkg-config \
+            libbsd-dev libssl-dev libxml2-dev uuid-dev zlib1g-dev
+
+      - name: Build swift-corelibs-libdispatch (provides BlocksRuntime)
+        run: |
+          set -eux
+          git clone --depth 1 --branch swift-6.0.3-RELEASE https://github.com/swiftlang/swift-corelibs-libdispatch.git /tmp/libdispatch
+          cmake -S /tmp/libdispatch -B /tmp/libdispatch/build -G Ninja \
+            -DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_PREFIX=/usr/local \
+            -DBUILD_TESTING=OFF -DENABLE_SWIFT=OFF
+          cmake --build /tmp/libdispatch/build -j$(nproc)
+          sudo cmake --install /tmp/libdispatch/build
+          sudo ldconfig
+          ls -la /usr/local/lib | head -20
+          test -f /usr/local/include/dispatch/dispatch.h
 
       - name: Build cctools ld64 for Linux
         run: |
           set -eux
+          export LDFLAGS="-L/usr/local/lib"
+          export CPPFLAGS="-I/usr/local/include"
+          export LD_LIBRARY_PATH=/usr/local/lib:$LD_LIBRARY_PATH
           git clone --depth 1 https://github.com/tpoechtrager/cctools-port.git /tmp/cctools-port
           cd /tmp/cctools-port/cctools
           ./configure --prefix=/opt/cctools --target=aarch64-apple-darwin
@@ -45,13 +61,14 @@ jobs:
           B=$RUNNER_TEMP/kn/deps/host/bin
           rm -f $B/ld64
           ln -sfn /opt/cctools/bin/ld64 $B/ld64
-          $B/ld64 -v | head -3 || true
+          /opt/cctools/bin/ld64 -v || true
 
       - name: Build XNU kernel
         run: |
           set -eux
           W=$RUNNER_TEMP/kn
           export PATH=$W/deps/host/bin:$PATH
+          export LD_LIBRARY_PATH=/usr/local/lib:$LD_LIBRARY_PATH
           export XNUDEPS=$W/deps XNU_SDK_PATH=$W/deps/sdk XNU_SDK_VERSION=16.5
           export RC_DARWIN_KERNEL_VERSION=25.6.0
           cd $W/xnu12377
