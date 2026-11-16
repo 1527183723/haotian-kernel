@@ -68,6 +68,11 @@ jobs:
           sudo ln -sfn "$(command -v clang++)" /usr/bin/clang++-21
           ls -la /usr/bin/clang-21 /usr/bin/clang++-21
           $B/xnu-clang --version | head -2
+          sudo apt-get install -y --no-install-recommends tcsh
+          rm -f $B/csh $B/tcsh
+          ln -sfn /usr/bin/tcsh $B/csh
+          ln -sfn /usr/bin/tcsh $B/tcsh
+          /usr/bin/tcsh -c 'echo csh-ok'
 
       - name: Build XNU kernel
         run: |
