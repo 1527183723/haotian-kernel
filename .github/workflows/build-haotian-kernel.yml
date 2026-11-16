@@ -42,7 +42,7 @@ jobs:
           set -eux
           export LDFLAGS="-L/usr/local/lib"
           export CPPFLAGS="-I/usr/local/include"
-          export LD_LIBRARY_PATH=/usr/local/lib:$LD_LIBRARY_PATH
+          export LD_LIBRARY_PATH=/usr/local/lib:${LD_LIBRARY_PATH:-}
           git clone --depth 1 https://github.com/tpoechtrager/cctools-port.git /tmp/cctools-port
           cd /tmp/cctools-port/cctools
           ./configure --prefix=/opt/cctools --target=aarch64-apple-darwin
@@ -70,7 +70,7 @@ jobs:
           set -eux
           W=$RUNNER_TEMP/kn
           export PATH=$W/deps/host/bin:$PATH
-          export LD_LIBRARY_PATH=/usr/local/lib:$LD_LIBRARY_PATH
+          export LD_LIBRARY_PATH=/usr/local/lib:${LD_LIBRARY_PATH:-}
           export XNUDEPS=$W/deps XNU_SDK_PATH=$W/deps/sdk XNU_SDK_VERSION=16.5
           export RC_DARWIN_KERNEL_VERSION=25.6.0
           cd $W/xnu12377
