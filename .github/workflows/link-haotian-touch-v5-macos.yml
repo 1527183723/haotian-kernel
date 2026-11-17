@@ -1,0 +1,84 @@
+name: Link Haotian touch v5 kernel on macOS 26
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  link:
+    runs-on: macos-26
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Report Apple toolchain
+        run: |
+          sw_vers
+          uname -m
+          xcodebuild -version
+          xcrun --find clang
+          xcrun --find ld
+          xcrun ld -v 2>&1 | head -3 || true
+
+      - name: Fetch compiled objects
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -eux
+          gh release download objects-c02-touch-v5 --pattern kernel-objects.tar.gz --dir "$RUNNER_TEMP" --clobber
+          ls -la "$RUNNER_TEMP/kernel-objects.tar.gz"
+
+      - name: Prepare tree
+        run: |
+          set -eux
+          W="$RUNNER_TEMP/kn"
+          mkdir -p "$W"
+          tar -xzf ios-payload/source/XNU26-wifi-source.tar.gz -C "$W"
+          O="$W/xnu12377/BUILD/obj/DEVELOPMENT_ARM64_BCM2837"
+          mkdir -p "$O"
+          tar -xzf "$RUNNER_TEMP/kernel-objects.tar.gz" -C "$O"
+          test -f "$O/link.filelist"
+          test -f "$O/.LDFLAGS"
+          wc -l "$O/link.filelist"
+
+      - name: Link the kernel with Apple ld64
+        run: |
+          set -eux
+          W="$RUNNER_TEMP/kn"
+          O="$W/xnu12377/BUILD/obj/DEVELOPMENT_ARM64_BCM2837"
+          cd "$O"
+          tr -d '\000' < .LDFLAGS \
+            | sed "s|^xnu-clang++ ||; s|/home/xiao/haotian-build/haotian-kernel-c02|$W|g; s|-lcc_kext||g; s|-L$W/deps/sdk/usr/local/lib/kernel/platform||g" > /tmp/linkargs.txt
+          sed "s|/home/xiao/haotian-build/haotian-kernel-c02|$W|g" link.filelist > /tmp/filelist.txt
+          wc -l /tmp/filelist.txt; wc -c /tmp/linkargs.txt
+          SDK=$(xcrun --sdk iphoneos --show-sdk-path 2>/dev/null || true)
+          echo "iphoneos_sdk=$SDK"
+          set +e
+          EXTRA_OBJS=""
+          for o in version.o lastkernelconstructor.o lastkerneldataconst.o; do
+            [ -f "$o" ] && EXTRA_OBJS="$EXTRA_OBJS $o"
+          done
+          echo "extra_objs=$EXTRA_OBJS"
+          xcrun clang++ -target arm64-apple-ios16.5 ${SDK:+-isysroot $SDK} $(cat /tmp/linkargs.txt) \
+            -filelist /tmp/filelist.txt $EXTRA_OBJS \
+            -L$W/deps/sdk/usr/local/lib/kernel -lfirehose_kernel -lpthread_kext \
+            -o mach.development.bcm2837.unstripped.noctf 2> /tmp/link.err
+          rc=$?
+          set -e
+          echo "link_rc=$rc"
+          tail -40 /tmp/link.err || true
+          if [ $rc -ne 0 ]; then exit $rc; fi
+          ls -la mach.development.bcm2837.unstripped.noctf
+          file mach.development.bcm2837.unstripped.noctf
+          cp mach.development.bcm2837.unstripped.noctf "$RUNNER_TEMP/kernel-haotian-c02.bin"
+          shasum -a 256 "$RUNNER_TEMP/kernel-haotian-c02.bin" | tee "$RUNNER_TEMP/kernel-sha256.txt"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: kernel-haotian-touch-v5-macos
+          path: |
+            ${{ runner.temp }}/kernel-haotian-c02.bin
+            ${{ runner.temp }}/kernel-sha256.txt
+          if-no-files-found: error
